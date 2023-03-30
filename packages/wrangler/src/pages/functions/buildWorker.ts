@@ -1,10 +1,8 @@
 import { access, cp, lstat, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { build as esBuild } from "esbuild";
 import { nanoid } from "nanoid";
 import { bundleWorker } from "../../bundle";
-import { FatalError } from "../../errors";
 import { logger } from "../../logger";
 import { getBasePath } from "../../paths";
 import { D1_BETA_PREFIX } from "../../worker";
@@ -260,40 +258,3 @@ export function buildNotifierPlugin(onEnd: () => void): Plugin {
 		},
 	};
 }
-
-/**
- * Runs the script through a simple esbuild bundle step to check for unwanted imports.
- *
- * This is useful when the user chooses not to bundle the `_worker.js` file by setting
- * `--no-bundle` at the command line.
- */
-export async function checkRawWorker(scriptPath: string, onEnd: () => void) {
-	await esBuild({
-		entryPoints: [scriptPath],
-		write: false,
-		// we need it to be bundled so that any imports that are used are affected by the blocker plugin
-		bundle: true,
-		plugins: [blockWorkerJsImports, buildNotifierPlugin(onEnd)],
-	});
-}
-
-const blockWorkerJsImports: Plugin = {
-	name: "block-worker-js-imports",
-	setup(build) {
-		build.onResolve({ filter: /.*/g }, (args) => {
-			// If it's the entrypoint, let it be as is
-			if (args.kind === "entry-point") {
-				return {
-					path: args.path,
-				};
-			}
-			// Otherwise, block any imports that the file is requesting
-			throw new FatalError(
-				"_worker.js is not being bundled by Wrangler but it is importing from another file.\n" +
-					"This will throw an error if deployed.\n" +
-					"You should bundle the Worker in a pre-build step, remove the import if it is unused, or ask Wrangler to bundle it by setting `--bundle`.",
-				1
-			);
-		});
-	},
-};

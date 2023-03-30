@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { join, resolve, resolve as resolvePath } from "node:path";
 import { cwd } from "node:process";
 import { File, FormData } from "undici";
 import { fetchResult } from "../../cfetch";
@@ -11,12 +11,10 @@ import {
 	FunctionsNoRoutesError,
 	getFunctionsNoRoutesWarning,
 } from "../../pages/errors";
-import {
-	buildRawWorker,
-	checkRawWorker,
-} from "../../pages/functions/buildWorker";
+import { buildRawWorker } from "../../pages/functions/buildWorker";
 import { validateRoutes } from "../../pages/functions/routes-validation";
 import { upload } from "../../pages/upload";
+import traverseModuleGraph from "../../traverse-module-graph";
 import { createUploadWorkerBundleContents } from "./create-worker-bundle-contents";
 import type { BundleResult } from "../../bundle";
 import type { Project, Deployment } from "@cloudflare/types";
@@ -249,7 +247,7 @@ export async function publish({
 			workerBundle = await buildRawWorker({
 				workerScriptPath,
 				outfile,
-				directory: directory ?? ".",
+				directory,
 				local: false,
 				sourcemap: true,
 				watch: false,
@@ -258,15 +256,20 @@ export async function publish({
 				nodejsCompat,
 			});
 		} else {
-			await checkRawWorker(workerScriptPath, () => {});
-			// TODO: Replace this with the cool new no-bundle stuff when that lands: https://github.com/cloudflare/workers-sdk/pull/2769
-			workerBundle = {
-				modules: [],
-				dependencies: {},
-				stop: undefined,
-				resolvedEntryPointPath: workerScriptPath,
-				bundleType: "esm",
-			};
+			workerBundle = await traverseModuleGraph(
+				{
+					file: workerScriptPath,
+					directory: resolve(directory),
+					format: "modules",
+					moduleRoot: resolve(directory),
+				},
+				[
+					{
+						type: "ESModule",
+						globs: ["**/*.js"],
+					},
+				]
+			);
 		}
 
 		const workerBundleContents = await createUploadWorkerBundleContents(

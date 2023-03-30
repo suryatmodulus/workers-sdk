@@ -13,7 +13,7 @@ import { getBasePath } from "../paths";
 import { buildFunctions } from "./buildFunctions";
 import { ROUTES_SPEC_VERSION, SECONDS_TO_WAIT_FOR_PROXY } from "./constants";
 import { FunctionsNoRoutesError, getFunctionsNoRoutesWarning } from "./errors";
-import { buildRawWorker, checkRawWorker } from "./functions/buildWorker";
+import { buildRawWorker } from "./functions/buildWorker";
 import { validateRoutes } from "./functions/routes-validation";
 import { CLEANUP, CLEANUP_CALLBACKS, pagesBetaWarning } from "./utils";
 import type { AdditionalDevProps } from "../dev";
@@ -266,9 +266,6 @@ export const Handler = async ({
 
 	if (usingWorkerScript) {
 		scriptPath = workerScriptPath;
-		let runBuild = async () => {
-			await checkRawWorker(workerScriptPath, () => scriptReadyResolve());
-		};
 
 		// TODO: Here lies a known bug. If you specify both `--bundle` and `--no-bundle`, this behavior is undefined and you will get unexpected results.
 		// There is no sane way to get the true value out of yargs, so here we are.
@@ -278,7 +275,7 @@ export const Handler = async ({
 			// So update the final path to the script that will be uploaded and
 			// change the `runBuild()` function to bundle the `_worker.js`.
 			scriptPath = join(tmpdir(), `./bundledWorker-${Math.random()}.mjs`);
-			runBuild = async () => {
+			const runBuild = async () => {
 				try {
 					await buildRawWorker({
 						workerScriptPath,
@@ -294,15 +291,15 @@ export const Handler = async ({
 					logger.warn("Failed to bundle _worker.js.", e);
 				}
 			};
-		}
 
-		await runBuild();
-		watch([workerScriptPath], {
-			persistent: true,
-			ignoreInitial: true,
-		}).on("all", async () => {
 			await runBuild();
-		});
+			watch([workerScriptPath], {
+				persistent: true,
+				ignoreInitial: true,
+			}).on("all", async () => {
+				await runBuild();
+			});
+		}
 	} else if (usingFunctions) {
 		// Try to use Functions
 		scriptPath = join(tmpdir(), `./functionsWorker-${Math.random()}.mjs`);
